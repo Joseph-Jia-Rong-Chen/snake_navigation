@@ -6,7 +6,7 @@ Keyboard teleoperation and data collection for a 2-DoF steerable catheter
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python teleop.py                      # first model in models/
-.venv/bin/python teleop.py --model 02_arch      # pick a model
+.venv/bin/python teleop.py --model vessel_01      # pick a model
 .venv/bin/python teleop.py --set catheter.EI_shaft=30 --set catheter.friction=0.1
 ```
 
@@ -73,20 +73,19 @@ the centreline with pure-pursuit steering:
 
 | tip setting | example targets reached |
 |---|---|
-| 20 mm / 0.16 (default) | 16 / 16 |
-| 20 mm / 0.125 | 15 / 16 |
-| 15 mm / 0.125 | 14 / 16 |
-
-With the smaller settings, the hairpin branches `left_out` and `R1b_x` are
-the ones missed.
+| 20 mm / 0.16 (default) | all targets in every model |
+| 15 mm / 0.125 | misses hairpin take-offs (branches that turn back > ~110°) |
 
 ## Vessel models (`models/*.json`)
 
 | model | description |
 |---|---|
-| `01_y_bifurcation` | Y phantom: trunk, 2 branches, 2 sub-branches each |
-| `02_arch` | arch with three upward take-offs, two of which bifurcate |
-| `03_tortuous_tree` | tortuous trunk, 3 bifurcation levels, a recurrent branch, small calibres |
+| `vessel_01` | arch with three upward take-offs, two of which bifurcate |
+| `vessel_02` | wide symmetric Y (~50° take-offs); both branches split at their ends |
+| `vessel_03` | asymmetric Y: shallow left / steep right take-off; side branch on the left |
+| `vessel_04` | tortuous trunk before the split; mixed end / side sub-branches |
+| `vessel_05` | long trunk, small-calibre branches, side branches on both sides |
+| `vessel_06` | trunk entering at an angle; one sub-branch points backward |
 
 A model is a list of vessels. Each vessel has a `name`, a `parent`,
 `control_points` (in mm, y up) and a `radius` (one value, or one per control
@@ -95,7 +94,9 @@ start a branch on its parent's centreline. The catheter enters at the first
 point of `vessels[0]`.
 
 Targets are optional. By default, every closed distal end is a target. Add new
-models directly as JSON, or edit and re-run `tools/make_models.py`. Every
+models directly as JSON, or edit and re-run `tools/make_models.py`.
+`vessel_02`–`vessel_06` come from a seeded generator (`Y_VARIANTS`): change
+the knobs or seeds to get new variants. Every
 `*.json` in `models/` shows up in the app (N / P keys).
 
 ## Data collection
@@ -119,8 +120,8 @@ The full schema is in `catheter_sim/recorder.py`.
 Recordings also store the initial solver state, so they re-simulate exactly:
 
 ```bash
-python replay.py data/02_arch/<episode>.npz           # visual replay (Space/←/→/+/-)
-python replay.py data/02_arch/<episode>.npz --resim   # re-run physics from logged actions
+python replay.py data/vessel_01/<episode>.npz           # visual replay (Space/←/→/+/-)
+python replay.py data/vessel_01/<episode>.npz --resim   # re-run physics from logged actions
 python collect_auto.py --episodes 5 --noise 0.3        # scripted demonstrations, same format
 ```
 
@@ -129,7 +130,7 @@ For scripted control, policies or RL, use `catheter_sim.env.CatheterEnv`:
 ```python
 from catheter_sim.config import load_config
 from catheter_sim.env import CatheterEnv
-env = CatheterEnv(load_config("config.json"), "models/02_arch.json")
+env = CatheterEnv(load_config("config.json"), "models/vessel_01.json")
 obs = env.reset()
 obs = env.step(d_length=0.25, d_kappa=0.0)   # per-step increments [mm], [1/mm]
 ```

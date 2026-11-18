@@ -7,9 +7,14 @@ Each model is plain JSON so you can hand-edit or author your own:
     centreline to create a bifurcation.
   - targets: optional; default = closed distal ends of the tree.
 
+Models are named vessel_NN: vessel_01 is the arch, vessel_02-06 are
+Y-bifurcation variants (see Y_VARIANTS; edit the knobs
+or seeds and re-run to get different ones).
+
 Run:  python tools/make_models.py
 """
 import json
+import sys
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "models"
@@ -20,25 +25,9 @@ def v(name, parent, pts, radius):
 
 
 MODELS = {
-    # Similar in spirit to a Y-shaped bench phantom: a gently curved trunk that
-    # splits into two branches, each of which splits again.
-    "01_y_bifurcation": {
-        "description": "Y-shaped phantom: trunk -> 2 branches -> 2 sub-branches each",
-        "wall_thickness": 1.5,
-        "blend_radius": 2.5,
-        "vessels": [
-            v("trunk", None, [[20, 0], [16, 30], [6, 60], [4, 90], [10, 112]], [5.0, 5.0, 4.8, 4.6, 4.6]),
-            v("left", "trunk", [[10, 112], [-6, 128], [-24, 140], [-40, 152]], [4.0, 3.9, 3.8, 3.6]),
-            v("left_up", "left", [[-40, 152], [-44, 175], [-36, 196], [-22, 206]], [3.2, 3.0, 2.9, 2.8]),
-            v("left_out", "left", [[-24, 140], [-46, 138], [-66, 146], [-80, 160]], [3.0, 2.9, 2.8, 2.6]),
-            v("right", "trunk", [[10, 112], [26, 126], [40, 142], [52, 160]], [4.0, 3.9, 3.7, 3.6]),
-            v("right_up", "right", [[52, 160], [50, 180], [56, 198], [70, 208]], [3.2, 3.0, 2.9, 2.8]),
-            v("right_out", "right", [[52, 160], [72, 166], [90, 162], [104, 172]], [3.0, 2.9, 2.8, 2.6]),
-        ],
-    },
     # Arch-type anatomy: enter from below on the right, go up and over an arch;
     # three branches leave the top of the arch (sharp take-off angles).
-    "02_arch": {
+    "vessel_01": {
         "description": "Arch with three upward take-offs that bifurcate; requires a tight tip curve",
         "wall_thickness": 1.5,
         "blend_radius": 2.5,
@@ -52,25 +41,114 @@ MODELS = {
             v("branch_c", "arch", [[-22, 126], [-40, 146], [-48, 170], [-70, 186]], [4.0, 3.8, 3.6, 3.4]),
         ],
     },
-    # Tortuous tree with smaller vessels, a hairpin-like recurrent branch and
-    # three levels of bifurcation.
-    "03_tortuous_tree": {
-        "description": "Tortuous trunk with 3 bifurcation levels, a recurrent (backward) branch and small calibres",
-        "wall_thickness": 1.2,
-        "blend_radius": 2.0,
-        "vessels": [
-            v("trunk", None, [[0, 0], [10, 20], [-8, 42], [8, 64], [-6, 86], [2, 104]], [4.2, 4.0, 4.0, 3.8, 3.7, 3.6]),
-            v("recurrent", "trunk", [[-6, 86], [-24, 100], [-36, 90], [-38, 70], [-30, 52]], [3.0, 2.8, 2.7, 2.6, 2.5]),
-            v("L1", "trunk", [[2, 104], [-12, 122], [-20, 142], [-36, 156]], [3.4, 3.2, 3.1, 3.0]),
-            v("L1a", "L1", [[-20, 142], [-14, 162], [-20, 182], [-10, 198]], [2.6, 2.5, 2.4, 2.3]),
-            v("L1b", "L1", [[-36, 156], [-58, 158], [-72, 172], [-70, 192]], [2.6, 2.5, 2.4, 2.3]),
-            v("R1", "trunk", [[2, 104], [20, 116], [34, 134], [36, 152]], [3.4, 3.2, 3.1, 3.0]),
-            v("R1a", "R1", [[36, 152], [28, 172], [38, 190], [32, 206]], [2.6, 2.5, 2.4, 2.3]),
-            v("R1b", "R1", [[34, 134], [54, 136], [66, 150], [86, 152]], [2.6, 2.5, 2.4, 2.3]),
-            v("R1b_x", "R1b", [[66, 150], [74, 132], [92, 124]], [2.2, 2.1, 2.0]),
-        ],
-    },
 }
+
+
+# ---------------------------------------------------------------------------
+# Y-bifurcation variants (vessel_02..06), generated from a
+# seed + "style" knobs. A candidate is rejected (and the next seed tried) if
+# any two non-adjacent vessels overlap or run too close together.
+# ---------------------------------------------------------------------------
+import numpy as np  # noqa: E402
+
+Y_VARIANTS = [
+    # name, description, knobs
+    ("vessel_02", "Wide symmetric Y (~50 deg take-offs), both branches split at their ends",
+     dict(seed=4, split_angle=((45, 55), (45, 55)), trunk_wiggle=4, styles=("end", "end"))),
+    ("vessel_03", "Asymmetric Y: shallow left / steep right take-off; left has a side branch",
+     dict(seed=5, split_angle=((20, 28), (55, 65)), trunk_wiggle=6, styles=("side", "end"))),
+    ("vessel_04", "Tortuous trunk before the split; mixed end / side sub-branches",
+     dict(seed=6, split_angle=((30, 45), (30, 45)), trunk_wiggle=22, trunk_len=(120, 135), styles=("end", "side"))),
+    ("vessel_05", "Long trunk with small-calibre branches and side branches on both sides",
+     dict(seed=7, split_angle=((35, 45), (35, 45)), trunk_wiggle=8, trunk_len=(130, 140),
+          radius_scale=0.8, styles=("side", "side"))),
+    ("vessel_06", "Trunk entering at an angle; rotated split with a backward-pointing sub-branch",
+     dict(seed=8, split_angle=((30, 40), (40, 55)), trunk_wiggle=8, trunk_heading=68,
+          styles=("end", "side"), back_branch=True)),
+]
+
+
+def _arc(start, heading, length, turn, n, wiggle, rng):
+    """Control points along a path whose heading changes by `turn` (deg) overall
+    plus random wiggle; returns (points, end_heading)."""
+    pts, h, p = [list(map(float, start))], heading, np.array(start, float)
+    for k in range(n - 1):
+        h_seg = h + turn / (n - 1) * 0.5 + rng.uniform(-wiggle, wiggle)
+        p = p + length / (n - 1) * np.array([np.cos(np.radians(h_seg)), np.sin(np.radians(h_seg))])
+        pts.append([round(p[0], 1), round(p[1], 1)])
+        h = h + turn / (n - 1)
+    return pts, h
+
+
+def _taper(r0, r1, n):
+    return [round(float(r), 2) for r in np.linspace(r0, r1, n)]
+
+
+def _y_candidate(rng, k):
+    U = rng.uniform
+    rs = k.get("radius_scale", 1.0)
+    vs = []
+    trunk, h = _arc([0, 0], k.get("trunk_heading", 90) + U(-5, 5), U(*k.get("trunk_len", (100, 120))),
+                    U(-15, 15), 6, k["trunk_wiggle"], rng)
+    rt = U(4.7, 5.3) * rs
+    vs.append(v("trunk", None, trunk, _taper(rt, rt * 0.92, 6)))
+    B = trunk[-1]
+    for side, sgn in (("left", 1), ("right", -1)):
+        ang = U(*k["split_angle"][0 if side == "left" else 1])
+        rb = rt * U(0.76, 0.84)
+        br, hb = _arc(B, h + sgn * ang, U(50, 68), sgn * U(-5, 20), 4, 4, rng)
+        vs.append(v(side, "trunk", br, _taper(rb, rb * 0.92, 4)))
+        rc = rb * U(0.75, 0.85)
+        style = k["styles"][0 if side == "left" else 1]
+        if style == "end":
+            a_in, a_out = U(20, 40), U(30, 55)
+            up, _ = _arc(br[-1], hb - sgn * a_in, U(35, 50), -sgn * U(0, 25), 4, 5, rng)
+            out, _ = _arc(br[-1], hb + sgn * a_out, U(35, 50), sgn * U(-15, 20), 4, 5, rng)
+            vs.append(v(f"{side}_up", side, up, _taper(rc, rc * 0.9, 4)))
+            vs.append(v(f"{side}_out", side, out, _taper(rc * 0.95, rc * 0.85, 4)))
+        else:  # side branch from the middle + continuation from the end
+            mid = br[1] if U() < 0.5 else br[2]
+            a = U(95, 115) if (k.get("back_branch") and side == "right") else U(45, 75)
+            sideb, _ = _arc(mid, hb + sgn * a, U(32, 45), sgn * U(-10, 20), 4, 5, rng)
+            cont, _ = _arc(br[-1], hb + U(-10, 10), U(35, 50), sgn * U(-20, 20), 4, 5, rng)
+            vs.append(v(f"{side}_side", side, sideb, _taper(rc * 0.9, rc * 0.8, 4)))
+            vs.append(v(f"{side}_up", side, cont, _taper(rc, rc * 0.9, 4)))
+    return vs
+
+
+def _y_valid(vessels, gap=3.0, junction=14.0, max_span=240.0):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from catheter_sim.vessel import smooth_centerline
+    sm = [smooth_centerline(np.array(x["control_points"]), x["radius"]) for x in vessels]
+    allp = np.vstack([p for p, _ in sm])
+    if np.ptp(allp, 0).max() > max_span:
+        return False
+    starts = [p[0] for p, _ in sm]
+    for i in range(len(sm)):
+        for j in range(i + 1, len(sm)):
+            (pa, ra), (pb, rb) = sm[i], sm[j]
+            keep_a = np.ones(len(pa), bool)
+            keep_b = np.ones(len(pb), bool)
+            for s in (starts[i], starts[j]):     # ignore the shared junctions
+                keep_a &= np.linalg.norm(pa - s, axis=1) > junction
+                keep_b &= np.linalg.norm(pb - s, axis=1) > junction
+            if not keep_a.any() or not keep_b.any():
+                continue
+            d = np.linalg.norm(pa[keep_a][:, None] - pb[keep_b][None], axis=2)
+            need = ra[keep_a][:, None] + rb[keep_b][None] + gap
+            if (d < need).any():
+                return False
+    return True
+
+
+def y_variant(knobs):
+    seed = knobs["seed"]
+    for attempt in range(500):
+        rng = np.random.default_rng(seed * 1000 + attempt)
+        vs = _y_candidate(rng, knobs)
+        if _y_valid(vs):
+            return vs, seed * 1000 + attempt
+    raise RuntimeError(f"no valid candidate for knobs {knobs}")
 
 
 def main():
@@ -79,6 +157,12 @@ def main():
         data = {"name": name, "units": "mm", **m}
         (OUT / f"{name}.json").write_text(json.dumps(data, indent=2))
         print("wrote", OUT / f"{name}.json")
+    for name, desc, knobs in Y_VARIANTS:
+        vessels, rng_seed = y_variant(knobs)
+        data = {"name": name, "units": "mm", "description": desc, "generator_seed": rng_seed,
+                "wall_thickness": 1.5, "blend_radius": 2.5, "vessels": vessels}
+        (OUT / f"{name}.json").write_text(json.dumps(data, indent=2))
+        print("wrote", OUT / f"{name}.json", "(seed", rng_seed, ")")
 
 
 if __name__ == "__main__":

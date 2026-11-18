@@ -9,7 +9,7 @@
   V roadmap    C contact forces    H help    Esc quit
 
 Example:
-  python teleop.py --model 02_arch --set catheter.EI_shaft=30 --set catheter.friction=0.1
+  python teleop.py --model vessel_01 --set catheter.EI_shaft=30 --set catheter.friction=0.1
 """
 from __future__ import annotations
 

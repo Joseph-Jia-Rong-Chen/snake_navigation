@@ -2,7 +2,7 @@
 """Generate episodes with the scripted demonstrator (same format as teleop).
 
   python collect_auto.py                       # 1 episode per target, all models
-  python collect_auto.py --model 02_arch --episodes 5 --noise 0.3 --record-images
+  python collect_auto.py --model vessel_01 --episodes 5 --noise 0.3 --record-images
 
 `--noise` randomises the controller gains and randomly drops/flips key presses,
 so repeated episodes differ. Episodes go to data/<model>/ with meta.source="autopilot".

@@ -1,5 +1,5 @@
 {
-  "name": "02_arch",
+  "name": "vessel_01",
   "units": "mm",
   "description": "Arch with three upward take-offs that bifurcate; requires a tight tip curve",
   "wall_thickness": 1.5,

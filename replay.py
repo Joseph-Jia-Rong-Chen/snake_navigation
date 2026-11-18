@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Replay a recorded episode.
 
-  python replay.py data/01_y_bifurcation/20261117_120000_left_up.npz
+  python replay.py data/vessel_02/20261117_120000_left_up.npz
   python replay.py <episode.npz> --resim      # re-run the physics from the logged actions
                                               # and report the deviation from the log
 
