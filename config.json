@@ -1,0 +1,31 @@
+{
+  "catheter": {
+    "diameter": 1.67,
+    "segment_length": 1.5,
+    "initial_length": 15.0,
+    "min_length": 3.0,
+    "max_length": 400.0,
+    "EI_shaft": 20.0,
+    "EI_tip": 6.0,
+    "base_rot_stiffness": 10.0,
+    "tip_length": 20.0,
+    "kappa_max": 0.16,
+    "friction": 0.05,
+    "wall_stiffness": 40.0,
+    "friction_eps": 0.005,
+    "max_substep": 0.3,
+    "newton_iters": 30,
+    "newton_tol": 1e-05
+  },
+  "teleop": {
+    "insert_speed": 15.0,
+    "fast_multiplier": 3.0,
+    "kappa_rate": 0.15,
+    "fps": 60,
+    "window_width": 1200,
+    "window_height": 900,
+    "record_images": false,
+    "image_size": 256,
+    "data_dir": "data"
+  }
+}

@@ -1,0 +1,210 @@
+{
+  "name": "01_y_bifurcation",
+  "units": "mm",
+  "description": "Y-shaped phantom: trunk -> 2 branches -> 2 sub-branches each",
+  "wall_thickness": 1.5,
+  "blend_radius": 2.5,
+  "vessels": [
+    {
+      "name": "trunk",
+      "parent": null,
+      "control_points": [
+        [
+          20,
+          0
+        ],
+        [
+          16,
+          30
+        ],
+        [
+          6,
+          60
+        ],
+        [
+          4,
+          90
+        ],
+        [
+          10,
+          112
+        ]
+      ],
+      "radius": [
+        5.0,
+        5.0,
+        4.8,
+        4.6,
+        4.6
+      ]
+    },
+    {
+      "name": "left",
+      "parent": "trunk",
+      "control_points": [
+        [
+          10,
+          112
+        ],
+        [
+          -6,
+          128
+        ],
+        [
+          -24,
+          140
+        ],
+        [
+          -40,
+          152
+        ]
+      ],
+      "radius": [
+        4.0,
+        3.9,
+        3.8,
+        3.6
+      ]
+    },
+    {
+      "name": "left_up",
+      "parent": "left",
+      "control_points": [
+        [
+          -40,
+          152
+        ],
+        [
+          -44,
+          175
+        ],
+        [
+          -36,
+          196
+        ],
+        [
+          -22,
+          206
+        ]
+      ],
+      "radius": [
+        3.2,
+        3.0,
+        2.9,
+        2.8
+      ]
+    },
+    {
+      "name": "left_out",
+      "parent": "left",
+      "control_points": [
+        [
+          -24,
+          140
+        ],
+        [
+          -46,
+          138
+        ],
+        [
+          -66,
+          146
+        ],
+        [
+          -80,
+          160
+        ]
+      ],
+      "radius": [
+        3.0,
+        2.9,
+        2.8,
+        2.6
+      ]
+    },
+    {
+      "name": "right",
+      "parent": "trunk",
+      "control_points": [
+        [
+          10,
+          112
+        ],
+        [
+          26,
+          126
+        ],
+        [
+          40,
+          142
+        ],
+        [
+          52,
+          160
+        ]
+      ],
+      "radius": [
+        4.0,
+        3.9,
+        3.7,
+        3.6
+      ]
+    },
+    {
+      "name": "right_up",
+      "parent": "right",
+      "control_points": [
+        [
+          52,
+          160
+        ],
+        [
+          50,
+          180
+        ],
+        [
+          56,
+          198
+        ],
+        [
+          70,
+          208
+        ]
+      ],
+      "radius": [
+        3.2,
+        3.0,
+        2.9,
+        2.8
+      ]
+    },
+    {
+      "name": "right_out",
+      "parent": "right",
+      "control_points": [
+        [
+          52,
+          160
+        ],
+        [
+          72,
+          166
+        ],
+        [
+          90,
+          162
+        ],
+        [
+          104,
+          172
+        ]
+      ],
+      "radius": [
+        3.0,
+        2.9,
+        2.8,
+        2.6
+      ]
+    }
+  ]
+}
