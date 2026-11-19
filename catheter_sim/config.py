@@ -53,35 +53,70 @@ class CatheterParams:
 
 
 @dataclass
+class ActuatorParams:
+    """Joint target -> joint motion (see actuator.py): clamp to joint limits,
+    optional transport delay, first-order lag, then a hard speed limit, so even
+    a huge jump in the target produces smooth, physically plausible motion."""
+    delay: float = 0.0                # transport delay [s] (0 = none)
+    time_constant: float = 0.08       # first-order lag [s]
+    max_insert_speed: float = 40.0    # joint speed limit [mm/s]
+    max_bend_rate: float = 360.0      # joint speed limit [deg/s]
+
+
+@dataclass
+class SimParams:
+    rate_hz: int = 60                 # robot / physics update rate (bus tick)
+
+
+@dataclass
+class CameraParams:
+    width: int = 900                  # square by default so resizing never distorts
+    height: int = 900
+    fps: int = 30
+    margin: float = 6.0               # mm trimmed off the vessel bounding box
+
+
+@dataclass
 class TeleopParams:
-    insert_speed: float = 15.0        # mm/s while W/S held
+    insert_speed: float = 15.0        # target change [mm/s] while W/S held
     fast_multiplier: float = 3.0      # holding Shift
-    kappa_rate: float = 0.15          # 1/mm per s while Left/Right held
-    fps: int = 60
-    window_width: int = 1200
-    window_height: int = 900
-    record_images: bool = False       # also store downsampled frames
-    image_size: int = 256
+    bend_rate: float = 170.0          # target change [deg/s] while Left/Right held
+
+
+@dataclass
+class RecordingParams:
     data_dir: str = "data"
+    record_video: bool = True         # plain .mp4 of /camera/image
+    record_images: bool = False       # also store lossless downsampled frames in the .npz
+    image_size: int = 256
 
 
 @dataclass
 class Config:
     catheter: CatheterParams = field(default_factory=CatheterParams)
+    actuator: ActuatorParams = field(default_factory=ActuatorParams)
+    sim: SimParams = field(default_factory=SimParams)
+    camera: CameraParams = field(default_factory=CameraParams)
     teleop: TeleopParams = field(default_factory=TeleopParams)
+    recording: RecordingParams = field(default_factory=RecordingParams)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
-    def apply_dict(self, d: dict) -> None:
+    def apply_dict(self, d: dict, strict: bool = True) -> None:
+        """strict=False skips unknown keys (e.g. configs stored in old recordings)."""
         for section, values in d.items():
             target = getattr(self, section, None)
             if target is None:
-                raise KeyError(f"unknown config section '{section}'")
+                if strict:
+                    raise KeyError(f"unknown config section '{section}'")
+                continue
             valid = {f.name: f.type for f in fields(target)}
             for k, v in values.items():
                 if k not in valid:
-                    raise KeyError(f"unknown parameter '{section}.{k}'")
+                    if strict:
+                        raise KeyError(f"unknown parameter '{section}.{k}'")
+                    continue
                 cur = getattr(target, k)
                 setattr(target, k, type(cur)(v) if not isinstance(cur, bool) else _to_bool(v))
 

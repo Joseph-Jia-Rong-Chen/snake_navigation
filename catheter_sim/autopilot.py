@@ -42,9 +42,11 @@ class Autopilot:
         want = self.path[la] - tip
         err = _wrap(np.arctan2(want[1], want[0]) - ang)       # + = target is CCW of tip
         k_des = float(np.clip(-self.gain * err, -cp.kappa_max, cp.kappa_max))
-        tol = 0.004
-        left = bool(obs["kappa_cmd"] > k_des + tol)
-        right = bool(obs["kappa_cmd"] < k_des - tol)
+        # steer the commanded bend angle (the operator's input) towards the desired one
+        bend_des = np.degrees(k_des * cp.tip_length)
+        tol = 4.0                                                # deg
+        left = bool(obs["cmd_bend"] > bend_des + tol)
+        right = bool(obs["cmd_bend"] < bend_des - tol)
 
         # stuck / wrong-branch detection -> back off and retry
         win = int(2.0 / dt)

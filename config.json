@@ -17,15 +17,30 @@
     "newton_iters": 30,
     "newton_tol": 1e-05
   },
+  "actuator": {
+    "delay": 0.0,
+    "time_constant": 0.08,
+    "max_insert_speed": 40.0,
+    "max_bend_rate": 360.0
+  },
+  "sim": {
+    "rate_hz": 60
+  },
+  "camera": {
+    "width": 900,
+    "height": 900,
+    "fps": 30,
+    "margin": 6.0
+  },
   "teleop": {
     "insert_speed": 15.0,
     "fast_multiplier": 3.0,
-    "kappa_rate": 0.15,
-    "fps": 60,
-    "window_width": 1200,
-    "window_height": 900,
+    "bend_rate": 171.9
+  },
+  "recording": {
+    "data_dir": "data",
+    "record_video": true,
     "record_images": false,
-    "image_size": 256,
-    "data_dir": "data"
+    "image_size": 256
   }
 }

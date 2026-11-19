@@ -1,136 +1,197 @@
 # 2D steerable-catheter navigation simulator
 
-Keyboard teleoperation and data collection for a 2-DoF steerable catheter
-(insertion length + tip curvature) inside 2D vessel phantoms.
+A simulated 2-DoF steerable catheter (insertion length + tip bend angle) in 2D
+vessel phantoms. It's built as a set of ROS2-style nodes on a small in-process
+pub/sub bus (no ROS install). Teleoperation, data collection and learned
+policies all drive the robot through the same topics.
 
 ```bash
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python teleop.py                      # first model in models/
-.venv/bin/python teleop.py --model vessel_01      # pick a model
-.venv/bin/python teleop.py --set catheter.EI_shaft=30 --set catheter.friction=0.1
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt   # + system ffmpeg
+.venv/bin/python launch.py                                   # teleop (keyboard)
+.venv/bin/python launch.py --commander policy --policy policies/example_policy.py:FeatureMapPolicy
+.venv/bin/python launch.py --commander autopilot --headless --record --episodes 3 --noise 0.3
 ```
 
-## Controls
+`teleop.py` and `collect_auto.py` are shortcuts for the first and last of these.
+
+## Architecture
+
+```
+ viewer ──/ui/keys──> teleop ─┐
+                     policy ──┼─> mux ──/robot/joint_target──> robot ──/robot/joint_state──>
+                  autopilot ──┘                                  │      /sim/ground_truth
+                                                                 v
+              /camera/image <── camera     /nav/feature_map <── feature_map     task ──> /sim/world,
+                                                                                        /nav/target
+ recorder <── everything (except the UI)                                               /task/status
+```
+
+| node | role |
+|---|---|
+| `robot` | Takes joint targets. Clamps them to the joint limits, applies a first-order **lag (80 ms)** and a hard **speed limit** (40 mm/s, 360°/s), then solves the catheter physics. A huge target jump therefore moves smoothly. Publishes the current joints on `/robot/joint_state`. |
+| `camera` | Publishes the plain frame (vessel + black catheter + red tip, no UI) on `/camera/image` at 30 fps, plus the latched `/camera/info` (size, world↔pixel transform). |
+| `feature_map` | Publishes the latched U/V target maps on `/nav/feature_map`. |
+| `teleop` / `policy` / `autopilot` | Commanders. Each publishes candidate targets. |
+| `mux` | Forwards one commander to the robot. With a policy or the autopilot in charge, **any motion key takes over** and **G** hands control back. |
+| `task` | Loads the vessel model, sets the target, reports distance and success. |
+| `recorder` | Writes episodes. |
+| `viewer` | The window: keyboard, HUD and overlays. It only *subscribes* to images, so nothing it draws reaches the data. |
+| `supervisor` | Headless episode batches (data generation, policy evaluation). |
+
+The bus runs at 60 Hz on a sim clock. In **realtime** mode (the default with a
+window), sim time tracks wall time and a policy runs in a worker thread: the
+robot keeps moving while it thinks, as on hardware. In **lockstep** mode
+(`--lockstep`, the default when `--headless`), each tick waits for every node,
+so runs are deterministic and faster than real time.
+
+For a physical setup, swap `robot` and `camera` for a hardware driver and a
+frame grabber that publish the same topics. Nothing else changes.
+
+### Topics
+
+| topic | message | notes |
+|---|---|---|
+| `/robot/joint_target` | `JointCommand` length [mm], bend [deg], source | the action |
+| `/robot/joint_state` | `JointState` length, bend, velocities, tracked target | the observation |
+| `/camera/image` | `Image` (H, W, 3) uint8 | 30 fps |
+| `/camera/info` | `CameraInfo` | latched |
+| `/nav/feature_map` | `FeatureMap` U, V, mask, c, target pixel | latched; republished when the target changes |
+| `/nav/target`, `/sim/world`, `/task/catalog` | | latched |
+| `/sim/ground_truth` | tip, shape, forces | sim-only labels, never a policy input |
+| `/task/status`, `/mux/active`, `/recorder/status`, `/ui/keys`, `/episode/events` | | |
+
+## Controls (window)
 
 | key | action |
 |---|---|
-| W / S | insert / retract (insertion length, + = deeper) |
-| ← / → | tip curvature CCW / CW (κ < 0 CCW, κ > 0 CW) |
-| Shift | fast (×3) |
-| Space | straighten tip (κ → 0) |
+| W / S | target insertion length + / − |
+| ← / → | target bend CCW / CW (− CCW, + CW) |
+| Shift / Space | fast / straighten tip |
 | Enter | start / stop recording |
-| R | reset episode (saves a running recording) |
-| N / P | next / previous vessel model |
-| T | cycle target |
-| V | toggle vessel roadmap (off = no contrast, only the catheter is visible) |
-| C | show contact (yellow) and friction (cyan) forces |
-| H | toggle help · Esc quit |
+| R / T / N / P | reset, next target, next / previous vessel |
+| G | give control back to the policy after a takeover |
+| F | feature map overlay: U → V → off |
+| I | show the raw `/camera/image` stream |
+| V / C / H / Esc | roadmap, contact forces, help, quit |
 
-The catheter is drawn black (radiopaque) and the tip has a red fiducial.
+## Feature maps
+
+For target centre (x_a, y_a), in pixel-index coordinates of the camera image:
+
+```
+U[j, i] = (i − x_a) / c · m[j, i] + (1 − m[j, i])
+V[j, i] = (j − y_a) / c · m[j, i] + (1 − m[j, i])
+```
+
+* i is the pixel column (x, + right) and j the row (y, + down).
+* m is the vessel mask: 1 if the pixel centre is in the lumen, 0 otherwise.
+* c = max(W, H) − 1.
+* Inside the vessel, U and V lie in [−1, 1]. Outside, they are exactly 1.
+* Implemented in `catheter_sim/featuremap.py`.
+* The policy node computes the maps directly at the policy's `input_size`
+  instead of resizing them, so the vessel edge stays exact.
+
+## Recording
+
+**Enter** toggles recording (`--record` records every episode automatically).
+Each episode writes `data/<model>/<timestamp>_<target>.{mp4,npz,json}`:
+
+* **`.mp4`**: the plain camera stream at 30 fps. Row *k* of the `.npz` is video frame *k*.
+* **`.npz`**: per camera frame:
+  * `joint_*`: the observation
+  * `action_*`: the target in effect when the frame was taken
+  * `next_action_*`: the first target commanded after the frame. **This is the action label.**
+  * `action_source`: teleop / policy / takeover / autopilot / hold
+  * `keys`, `feature_map_index`, and sim-only labels
+
+  Also stored:
+  * once per target: `feature_U`, `feature_V`, `vessel_mask`, `feature_target_*`
+  * a 60 Hz control stream (`ctrl_*`) plus the initial state (`init_*`), for exact re-simulation
+* **`.json`**: model, targets, camera info, config, success, time to target,
+  commander and policy.
+
+The full schema is in `catheter_sim/recorder.py`.
+
+```bash
+python replay.py data/vessel_02/<episode>.npz           # view (F = feature maps)
+python replay.py data/vessel_02/<episode>.npz --resim   # re-run from the logged targets (exact)
+```
+
+Training samples match what a deployed policy receives:
+
+```python
+from catheter_sim.dataset import Episode, list_episodes
+ep = Episode(list_episodes()[0], size=(256, 256))
+s = ep[10]   # image, feature_u, feature_v, joint, joint_vel, last_action, action, source
+```
+
+The `.mp4` is H.264 at crf 18 (near-lossless). Use `--record-images` for
+bit-exact frames as well.
+
+## Deploying a policy
+
+```python
+from catheter_sim.policy_api import Policy
+
+class MyPolicy(Policy):
+    rate_hz = 10
+    input_size = (256, 256)          # image + feature maps delivered at this size
+    def __init__(self, ckpt): ...
+    def reset(self, info): ...       # new episode
+    def act(self, obs):              # obs: image, feature_u, feature_v, joint, joint_vel, last_action, t
+        return target_length_mm, target_bend_deg
+```
+
+```bash
+python launch.py --commander policy --policy my_policy.py:MyPolicy --policy-arg ckpt=best.pt           # watch + take over
+python launch.py --commander policy --policy my_policy.py:MyPolicy --headless --episodes 5 --models vessel_02,vessel_03   # evaluate
+```
+
+Return absolute targets. For a delta policy, return `obs["last_action"] + delta`.
+`policies/example_policy.py` has three examples:
+
+* `CreepPolicy`: a minimal template.
+* `FeatureMapPolicy`: steers using only the red tip and the feature maps. It's a
+  demo of the inputs, not a good controller.
+* `ReplayPolicy`: replays a recording's actions open loop.
 
 ## Catheter model
 
 * **Spline rod.** The centreline is a cubic spline through knots spaced every
-  `segment_length` mm. The knots are the degrees of freedom, stored as
-  segment angles, so the rod is inextensible by construction. The bending
-  energy is the discrete form of `∫ EI/2 (κ − κ₀)² ds`.
-* **Base.** The base is fixed at the vessel entry. Its orientation is free,
-  held by a rotational spring `base_rot_stiffness` that models a sheath (set
-  it to 0 for a free pivot). Insertion is kinematic: material is fed through
-  the entry point.
+  `segment_length` mm. The knots are stored as segment angles, so the rod is
+  inextensible by construction. The bending energy is the discrete form of
+  `∫ EI/2 (κ − κ₀)² ds`.
+* **Base.** The base is fixed at the vessel entry, but its orientation is free,
+  held by a sheath spring (`base_rot_stiffness`).
 * **Steerable tip.** The distal `tip_length` mm is a constant-curvature arc
-  whose rest curvature is the commanded κ. The rest of the shaft has κ₀ = 0,
-  so the rest shape is piecewise constant. The tip can have its own stiffness
-  (`EI_tip`).
-* **Wall contact.** The vessel lumen is a signed distance field. Contact uses
-  a penalty (`wall_stiffness`), and Coulomb friction (`friction`) is applied
-  incrementally with a lagged normal force (IPC-style).
-* **Solver.** Every frame is a quasi-static energy minimisation, solved with
-  Newton plus line search, with negative-curvature handling so the rod
-  buckles and prolapses when pushed against an obstacle. A step takes about
-  2–10 ms.
-
-### Parameters (`config.json`, or `--set section.key=value`)
+  whose rest curvature is set by the bend joint: bend angle = κ × `tip_length`.
+* **Wall contact.** Penalty contact against the vessel's distance field, with
+  incremental Coulomb friction (`friction`).
+* **Solver.** Newton with line search, including negative-curvature handling,
+  so the rod buckles and prolapses.
 
 | parameter | default | note |
 |---|---|---|
-| `catheter.EI_shaft` | 20 N·mm² | 5 Fr Pebax-like shaft (E ≈ 50 MPa, d = 1.67 mm) |
-| `catheter.EI_tip` | 6 N·mm² | softer steerable section |
-| `catheter.tip_length` | 20 mm | bending-section arc length |
-| `catheter.kappa_max` | 0.16 1/mm | min radius 6.25 mm, ≈180° max deflection |
-| `catheter.friction` | 0.05 | hydrophilic-coated catheter on a smooth wall |
-| `catheter.diameter` | 1.67 mm | 5 Fr |
-| `catheter.base_rot_stiffness` | 10 N·mm/rad | sheath at the entry |
-| `catheter.wall_stiffness` | 40 N/mm | penalty stiffness (higher means less penetration but stiffer solves) |
-| `teleop.insert_speed` | 15 mm/s | |
-| `teleop.kappa_rate` | 0.15 1/mm/s | |
+| `catheter.EI_shaft` / `EI_tip` | 20 / 6 N·mm² | 5 Fr Pebax-like |
+| `catheter.tip_length` / `kappa_max` | 20 mm / 0.16 1/mm | up to ≈183° of bend |
+| `catheter.friction` | 0.05 | |
+| `actuator.time_constant` | 0.08 s | lag |
+| `actuator.delay` | 0 s | optional transport delay |
+| `actuator.max_insert_speed` / `max_bend_rate` | 40 mm/s / 360 °/s | speed limit |
+| `camera.width` / `height` / `fps` | 900 / 900 / 30 | square, so resizing never distorts |
+| `teleop.insert_speed` / `bend_rate` | 15 mm/s / 172 °/s | how fast keys move the target |
+| `recording.*` | | data dir, video, lossless images |
 
-Only stiffness ratios change the shape, because the walls are almost rigid
-and insertion is kinematic. Absolute `EI` scales the reported forces.
-
-The tip defaults were checked with the scripted demonstrator, which follows
-the centreline with pure-pursuit steering:
-
-| tip setting | example targets reached |
-|---|---|
-| 20 mm / 0.16 (default) | all targets in every model |
-| 15 mm / 0.125 | misses hairpin take-offs (branches that turn back > ~110°) |
+Override any parameter in `config.json` or with `--set section.key=value`.
 
 ## Vessel models (`models/*.json`)
 
-| model | description |
-|---|---|
-| `vessel_01` | arch with three upward take-offs, two of which bifurcate |
-| `vessel_02` | wide symmetric Y (~50° take-offs); both branches split at their ends |
-| `vessel_03` | asymmetric Y: shallow left / steep right take-off; side branch on the left |
-| `vessel_04` | tortuous trunk before the split; mixed end / side sub-branches |
-| `vessel_05` | long trunk, small-calibre branches, side branches on both sides |
-| `vessel_06` | trunk entering at an angle; one sub-branch points backward |
+Every `*.json` in `models/` is loaded. `tools/make_models.py` regenerates the
+examples:
+
+* `vessel_01`: the arch
+* `vessel_02`–`vessel_06`: seeded Y-bifurcation variants (`Y_VARIANTS`)
 
 A model is a list of vessels. Each vessel has a `name`, a `parent`,
-`control_points` (in mm, y up) and a `radius` (one value, or one per control
-point). Centrelines are cubic-spline interpolated. To make a bifurcation,
-start a branch on its parent's centreline. The catheter enters at the first
-point of `vessels[0]`.
-
-Targets are optional. By default, every closed distal end is a target. Add new
-models directly as JSON, or edit and re-run `tools/make_models.py`.
-`vessel_02`–`vessel_06` come from a seeded generator (`Y_VARIANTS`): change
-the knobs or seeds to get new variants. Every
-`*.json` in `models/` shows up in the app (N / P keys).
-
-## Data collection
-
-Press **Enter** to start or stop recording. Episodes are saved to
-`data/<model>/<timestamp>_<target>.npz`, with a `.json` metadata sidecar
-(model, target, full config, success, time-to-target).
-
-Per-frame arrays:
-
-* `keys` [W, S, L, R] and `action` (Δlength, Δκ)
-* `length`, `kappa_cmd`, `kappa_meas`
-* `tip_pos`, `tip_angle`, `base_angle`
-* `shape`: the spline resampled to 200 points, base to tip
-* contact and insertion forces
-* `target_dist`, `success`
-* `images`: fluoroscopy frames (256×256 RGB), only with `--record-images`
-
-The full schema is in `catheter_sim/recorder.py`.
-
-Recordings also store the initial solver state, so they re-simulate exactly:
-
-```bash
-python replay.py data/vessel_01/<episode>.npz           # visual replay (Space/←/→/+/-)
-python replay.py data/vessel_01/<episode>.npz --resim   # re-run physics from logged actions
-python collect_auto.py --episodes 5 --noise 0.3        # scripted demonstrations, same format
-```
-
-For scripted control, policies or RL, use `catheter_sim.env.CatheterEnv`:
-
-```python
-from catheter_sim.config import load_config
-from catheter_sim.env import CatheterEnv
-env = CatheterEnv(load_config("config.json"), "models/vessel_01.json")
-obs = env.reset()
-obs = env.step(d_length=0.25, d_kappa=0.0)   # per-step increments [mm], [1/mm]
-```
+`control_points` (in mm, y up) and a `radius`. To make a bifurcation, start a
+branch on its parent's centreline. Targets default to the closed distal ends.
