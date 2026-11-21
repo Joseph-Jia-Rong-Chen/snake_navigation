@@ -2,6 +2,7 @@
   "name": "vessel_03",
   "units": "mm",
   "description": "Asymmetric Y: shallow left / steep right take-off; left has a side branch",
+  "split": "train",
   "generator_seed": 5000,
   "wall_thickness": 1.5,
   "blend_radius": 2.5,

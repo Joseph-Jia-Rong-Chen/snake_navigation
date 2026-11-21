@@ -21,7 +21,7 @@ from ..featuremap import compute as compute_feature_maps
 from ..msgs import (ActiveSource, CameraInfo, Event, FeatureMap, GroundTruth, Image, JointCommand,
                     JointState, KeyState, NavTarget, VesselInfo)
 from ..policy_api import Policy
-from ..render import array_to_surface, surface_to_array
+from ..render import resize_image
 
 
 class KeyIntegrator:
@@ -198,6 +198,9 @@ class PolicyNode(Node):
         self._maps_cache = None
 
     def _on_event(self, ev: Event) -> None:
+        hook = getattr(self.policy, "on_event", None)
+        if hook is not None and ev.kind in ("takeover", "resume"):
+            hook(ev.kind)                                # optional Policy hook
         if ev.kind == "reset":
             self.episode += 1
             self.pending = None
@@ -221,8 +224,8 @@ class PolicyNode(Node):
     def _observation(self) -> dict:
         img = self.image.data
         size = self.policy.input_size
-        if size is not None and (img.shape[1], img.shape[0]) != tuple(size):
-            img = surface_to_array(__import__("pygame").transform.smoothscale(array_to_surface(img), size))
+        if size is not None:
+            img = resize_image(img, size)
         U, V = self._maps()
         s = self.state
         return {"image": img, "feature_u": U, "feature_v": V,

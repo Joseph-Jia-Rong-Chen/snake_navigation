@@ -62,6 +62,7 @@ class VesselModel:
         self.path = path
         self.name = data.get("name", Path(path).stem if path else "vessel")
         self.description = data.get("description", "")
+        self.split = data.get("split", "train")          # train | val | test
         self.blend = float(data.get("blend_radius", 2.0))
         self.wall_thickness = float(data.get("wall_thickness", 1.5))
         self.vessels: list[Vessel] = []
@@ -211,5 +212,15 @@ def _smin(a: np.ndarray, b: np.ndarray, k: float) -> np.ndarray:
     return (b * (1 - hh) + a * hh - k * hh * (1 - hh)).astype(np.float32)
 
 
-def list_models(folder: str | Path = "models") -> list[Path]:
-    return sorted(Path(folder).glob("*.json"))
+def model_split(path: str | Path) -> str:
+    """train | val | test, from the model file (default train)."""
+    return json.loads(Path(path).read_text()).get("split", "train")
+
+
+def list_models(folder: str | Path = "models", split: str | None = None) -> list[Path]:
+    """Model files in `folder`, optionally only one split (comma-separated allowed)."""
+    ms = sorted(Path(folder).glob("*.json"))
+    if split:
+        want = set(split.split(","))
+        ms = [m for m in ms if model_split(m) in want]
+    return ms

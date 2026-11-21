@@ -12,6 +12,10 @@ callback immediately. Keep subscription callbacks cheap (store the message);
 do heavy work in timers. Timers fire in `priority` order inside a tick, which
 makes a run fully deterministic.
 
+Time: every message carries `stamp` (sim time the data was valid) and `seq`
+(a bus-wide counter, strictly increasing in the order data was produced), so
+messages with equal stamps are still totally ordered. See msgs.py.
+
 Clock modes:
   realtime  the bus sleeps so sim time tracks wall-clock time (teleop, live demos)
   lockstep  no sleeping: run as fast as possible, every node sees every tick
@@ -39,6 +43,8 @@ class Publisher:
     def publish(self, msg: Any) -> None:
         if getattr(msg, "stamp", 0.0) is None:
             msg.stamp = self.bus.now
+        if getattr(msg, "seq", 0) is None:
+            msg.seq = self.bus.next_seq()
         self.topic.last = msg
         self.topic.count += 1
         for cb in list(self.topic.subscribers):
@@ -88,6 +94,7 @@ class Bus:
         self.dt = 1.0 / rate_hz
         self.realtime = realtime
         self.tick = 0
+        self.seq = 0                    # next sequence number
         self.topics: dict[str, Topic] = {}
         self.nodes: list[Node] = []
         self.timers: list[Timer] = []
@@ -97,6 +104,10 @@ class Bus:
     @property
     def now(self) -> float:
         return self.tick * self.dt
+
+    def next_seq(self) -> int:
+        self.seq += 1
+        return self.seq - 1
 
     def topic(self, name: str) -> Topic:
         if name not in self.topics:

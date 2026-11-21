@@ -17,7 +17,7 @@ Node graph:
   viewer (/ui/keys, events) -> teleop | policy | autopilot -> mux -> /robot/joint_target
   robot (clamp, lag, speed limit, physics) -> /robot/joint_state, /sim/ground_truth
   camera -> /camera/image, /camera/info      feature_map -> /nav/feature_map
-  task -> /sim/world, /nav/target, /task/status      recorder -> data/<model>/*.{mp4,npz,json}
+  task -> /sim/world, /nav/target, /task/status      recorder -> data/raw/<model>/<episode>/{video.mp4,streams.npz,meta.json}
 """
 from __future__ import annotations
 
@@ -38,13 +38,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--policy-arg", action="append", default=[], metavar="KEY=VALUE")
     ap.add_argument("--model", help="vessel model name/stem/index (default: first)")
     ap.add_argument("--models", help="headless: comma-separated models to run (default: all, or --model)")
+    ap.add_argument("--split", help="only vessel models of this split: train | val | test (comma list ok)")
     ap.add_argument("--target", help="target name or index")
     ap.add_argument("--models-dir", default=str(ROOT / "models"))
     ap.add_argument("--config", default=str(ROOT / "config.json"))
     ap.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
     ap.add_argument("--record", action="store_true", help="record every episode")
     ap.add_argument("--no-video", action="store_true")
-    ap.add_argument("--record-images", action="store_true", help="also store lossless frames in the .npz")
+    ap.add_argument("--record-images", action="store_true", help="also store lossless frames (video size) in streams.npz")
     ap.add_argument("--headless", action="store_true", help="no window (needs --commander policy/autopilot)")
     ap.add_argument("--episodes", type=int, default=None, help="episodes per target (enables the supervisor)")
     ap.add_argument("--max-time", type=float, default=90.0, help="supervisor: episode timeout [s sim]")
@@ -89,9 +90,9 @@ def main(argv: list[str] | None = None) -> None:
         cfg.recording.record_video = False
     if args.record_images:
         cfg.recording.record_images = True
-    models = list_models(args.models_dir)
+    models = list_models(args.models_dir, args.split)
     if not models:
-        sys.exit(f"no *.json models in {args.models_dir}")
+        sys.exit(f"no *.json models in {args.models_dir}" + (f" with split {args.split}" if args.split else ""))
     mi = resolve_model(models, args.model)
     realtime = (not args.headless and not args.lockstep) or args.realtime
 

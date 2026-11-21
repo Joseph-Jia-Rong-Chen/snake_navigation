@@ -6,6 +6,7 @@ For a physical setup, RobotSimNode and CameraNode are the two nodes to replace
 """
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +17,7 @@ from ..config import Config
 from ..env import CatheterEnv
 from ..msgs import (Catalog, CameraInfo, Event, FeatureMap, GroundTruth, Image, JointCommand,
                     JointState, NavTarget, StateSnapshot, TaskStatus, VesselInfo)
-from ..render import SceneRenderer, fit_camera, surface_to_array
+from ..render import RED, SceneRenderer, fit_camera, surface_to_array, to_gray
 from ..vessel import VesselModel
 
 
@@ -161,8 +162,12 @@ class RobotSimNode(Node):
 
 
 class CameraNode(Node):
-    """Simulated camera: renders the plain scene (vessel + catheter + red tip,
-    no UI) at camera.fps and publishes /camera/image (+ latched /camera/info)."""
+    """Simulated camera: renders the plain scene (vessel + catheter + tip fiducial,
+    no UI) at camera.fps and publishes /camera/image (+ latched /camera/info).
+
+    Each frame gets stamp and seq at CAPTURE time (after the robot moved in this
+    tick). With camera.latency > 0 the frame is delivered that much later but keeps
+    its capture stamp/seq, like a real frame grabber's hardware timestamp."""
 
     def __init__(self, bus: Bus, cfg: Config):
         super().__init__(bus, "camera")
@@ -170,27 +175,42 @@ class CameraNode(Node):
         self.renderer: SceneRenderer | None = None
         self.centerline = None
         self.frame = 0
+        self.period = max(round(1.0 / cfg.camera.fps / bus.dt), 1)
+        self.in_flight: deque[Image] = deque()
         self.pub_image = self.create_publisher("/camera/image")
         self.pub_info = self.create_publisher("/camera/info", latched=True)
         self.create_subscription("/sim/world", self.on_world)
         self.create_subscription("/sim/ground_truth", self.on_truth)
-        self.create_timer(1.0 / cfg.camera.fps, self.capture, priority=50)
+        self.create_timer(bus.dt, self.update, priority=50)
 
     def on_world(self, w: VesselInfo) -> None:
         c = self.cfg.camera
         cam = fit_camera(w.vessel, c.width, c.height, c.margin)
         self.renderer = SceneRenderer(w.vessel, cam)
         self.centerline = None
+        self.in_flight.clear()
         self.pub_info.publish(cam)
 
     def on_truth(self, gt: GroundTruth) -> None:
         self.centerline = gt.centerline
 
+    def update(self) -> None:
+        if self.bus.tick % self.period == 0:
+            self.capture()
+        due = self.now - self.cfg.camera.latency + 1e-9
+        while self.in_flight and self.in_flight[0].stamp <= due:
+            self.pub_image.publish(self.in_flight.popleft())
+
     def capture(self) -> None:
         if self.renderer is None or self.centerline is None:
             return
-        surf = self.renderer.render(self.centerline, self.cfg.catheter.diameter, roadmap=True)
-        self.pub_image.publish(Image(surface_to_array(surf), self.frame))
+        c = self.cfg.camera
+        mono = c.encoding == "mono8"
+        tip = (c.tip_gray,) * 3 if mono else RED
+        surf = self.renderer.render(self.centerline, self.cfg.catheter.diameter, roadmap=True, tip_color=tip)
+        rgb = surface_to_array(surf)
+        self.in_flight.append(Image(to_gray(rgb) if mono else rgb, self.frame, "mono8" if mono else "rgb8",
+                                    stamp=self.now, seq=self.bus.next_seq()))
         self.frame += 1
 
 

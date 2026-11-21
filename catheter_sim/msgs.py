@@ -1,6 +1,12 @@
 """Message types for the bus (the analogue of ROS2 .msg files).
 
-Every message has a `stamp` (sim time [s]) filled in on publish.
+Every message has
+  stamp   sim time [s] at which the data was VALID (measured / captured), filled
+          in on publish if the producer did not set it (header.stamp semantics)
+  seq     bus-wide sequence number, a strict total order of all messages; it
+          breaks ties between messages with the same stamp (several nodes run
+          in one tick). Also filled in on publish unless the producer set it
+          (the camera sets both at capture time, so a delayed frame keeps them).
 
 Topics:
   /robot/joint_target   JointCommand  target joints (the action), after the mux
@@ -32,6 +38,7 @@ import numpy as np
 @dataclass
 class Msg:
     stamp: float | None = field(default=None, kw_only=True)
+    seq: int | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -55,43 +62,54 @@ class JointState(Msg):
 
 @dataclass
 class Image(Msg):
-    data: np.ndarray                  # (H, W, 3) uint8 RGB
-    frame: int = 0
+    data: np.ndarray                  # (H, W) uint8 if encoding == "mono8", (H, W, 3) if "rgb8"
+    frame: int = 0                    # camera frame counter
+    encoding: str = "mono8"
 
 
 @dataclass
 class CameraInfo(Msg):
     """Pixel coordinates are continuous: pixel (i, j) covers [i, i+1) x [j, j+1),
-    i = column (x, + right), j = row (y, + down). World is mm with y up."""
+    i = column (x, + right), j = row (y, + down). World is mm with y up.
+    `scale` is pixels per mm along x; `scale_y` along y (None = same as x). They
+    only differ after resizing to a size whose aspect ratio is rounded slightly."""
     width: int
     height: int
-    scale: float                      # pixels per mm
+    scale: float                      # pixels per mm (x)
     center_world: np.ndarray          # world point mapped to center_px
     center_px: np.ndarray
     model: str = ""
+    scale_y: float | None = None      # pixels per mm (y)
+
+    @property
+    def sy(self) -> float:
+        return self.scale if self.scale_y is None else self.scale_y
 
     def world_to_px(self, p: np.ndarray) -> np.ndarray:
         p = np.atleast_2d(p)
-        d = (p - self.center_world) * self.scale
-        return np.stack([self.center_px[0] + d[:, 0], self.center_px[1] - d[:, 1]], 1)
+        d = p - self.center_world
+        return np.stack([self.center_px[0] + d[:, 0] * self.scale, self.center_px[1] - d[:, 1] * self.sy], 1)
 
     def px_to_world(self, u: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return (self.center_world[0] + (u - self.center_px[0]) / self.scale,
-                self.center_world[1] - (v - self.center_px[1]) / self.scale)
+                self.center_world[1] - (v - self.center_px[1]) / self.sy)
 
     def world_to_index(self, p: np.ndarray) -> np.ndarray:
         """Pixel *index* coordinates (pixel centres at integers), as used by the feature map."""
         return self.world_to_px(p) - 0.5
 
     def scaled(self, width: int, height: int) -> "CameraInfo":
-        """Same view at another resolution (uniform scale; keep the aspect ratio)."""
-        s = min(width / self.width, height / self.height)
-        return CameraInfo(width=width, height=height, scale=self.scale * s,
+        """The same image resized to (width, height): the image edges map onto the
+        new edges, exactly what an image resize does, so pixel (i, j) of a resized
+        frame and pixel (i, j) of a map computed with this camera coincide."""
+        fx, fy = width / self.width, height / self.height
+        return CameraInfo(width=width, height=height, scale=self.scale * fx,
                           center_world=self.center_world.copy(),
-                          center_px=np.array([width / 2, height / 2]), model=self.model, stamp=self.stamp)
+                          center_px=self.center_px * np.array([fx, fy]), model=self.model,
+                          scale_y=self.sy * fy, stamp=self.stamp)
 
     def to_dict(self) -> dict:
-        return {"width": self.width, "height": self.height, "scale": self.scale,
+        return {"width": self.width, "height": self.height, "scale": self.scale, "scale_y": self.sy,
                 "center_world": self.center_world.tolist(), "center_px": self.center_px.tolist(),
                 "model": self.model}
 
@@ -99,7 +117,7 @@ class CameraInfo(Msg):
     def from_dict(cls, d: dict) -> "CameraInfo":
         return cls(width=d["width"], height=d["height"], scale=d["scale"],
                    center_world=np.array(d["center_world"]), center_px=np.array(d["center_px"]),
-                   model=d.get("model", ""))
+                   model=d.get("model", ""), scale_y=d.get("scale_y"))
 
 
 @dataclass

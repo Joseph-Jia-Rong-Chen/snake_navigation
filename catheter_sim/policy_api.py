@@ -2,7 +2,8 @@
 
     class MyPolicy(Policy):
         rate_hz = 10                  # how often act() is called
-        input_size = (256, 256)       # obs image + feature maps at this size (None = camera size)
+        input_size = (320, 180)       # (W, H) of obs image + feature maps (None = camera size);
+                                      # use the size of the dataset the policy was trained on
 
         def reset(self, info):        # new episode: info = {model, target, camera_info}
             ...
@@ -10,19 +11,26 @@
         def act(self, obs):           # -> (target_length_mm, target_bend_deg)
             ...
 
+        def on_event(self, kind):     # optional: "takeover" / "resume" (operator took / gave back control)
+            ...
+
 `obs` contains only what a real system can observe:
-    image          (H, W, 3) uint8   plain camera frame (vessel + catheter + red tip)
+    image          (H, W) uint8      plain grayscale camera frame (vessel + black catheter +
+                                     bright tip fiducial); (H, W, 3) if camera.encoding = rgb8
     feature_u      (H, W) float32    U = (i - x_a)/c * m + (1 - m)
     feature_v      (H, W) float32    V = (j - y_a)/c * m + (1 - m)
     joint          [length_mm, bend_deg]       current joint state
     joint_vel      [mm/s, deg/s]
     last_action    [length_mm, bend_deg]       target the robot is currently tracking
-    t              stamp of the image [s]
+    t              capture stamp of the image [s]
     target_name    str
 
 The returned target goes through the same mux -> robot (clamp, lag, speed limit)
 path as teleop, so a large jump is executed smoothly. Return absolute targets;
 for a delta-style policy use `obs["last_action"] + delta`.
+
+For a policy trained on the LeRobot export, catheter_sim.lerobot_export.
+observation_to_frame(obs) gives the observation in exactly the dataset's layout.
 
 Load from the command line with  --policy path/to/file.py:ClassName
 (constructor kwargs via --policy-arg key=value).
@@ -74,10 +82,14 @@ def parse_kwargs(items: list[str]) -> dict:
     return out
 
 
-def find_tip_pixel(image: np.ndarray) -> np.ndarray | None:
-    """(x, y) pixel of the red tip fiducial in a camera frame, or None."""
-    r, g, b = image[..., 0].astype(int), image[..., 1].astype(int), image[..., 2].astype(int)
-    ys, xs = np.nonzero((r > 170) & (g < 90) & (b < 90))
+def find_tip_pixel(image: np.ndarray, gray_threshold: int = 215) -> np.ndarray | None:
+    """(x, y) pixel of the tip fiducial in a camera frame, or None. Grayscale frames:
+    the bright marker (camera.tip_gray); RGB frames: the red marker."""
+    if image.ndim == 2:
+        ys, xs = np.nonzero(image >= gray_threshold)
+    else:
+        r, g, b = image[..., 0].astype(int), image[..., 1].astype(int), image[..., 2].astype(int)
+        ys, xs = np.nonzero((r > 170) & (g < 90) & (b < 90))
     if len(xs) == 0:
         return None
     return np.array([xs.mean(), ys.mean()])

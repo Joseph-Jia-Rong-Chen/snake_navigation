@@ -2,6 +2,7 @@
   "name": "vessel_04",
   "units": "mm",
   "description": "Tortuous trunk before the split; mixed end / side sub-branches",
+  "split": "test",
   "generator_seed": 6000,
   "wall_thickness": 1.5,
   "blend_radius": 2.5,

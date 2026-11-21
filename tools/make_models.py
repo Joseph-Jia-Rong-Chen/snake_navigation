@@ -7,11 +7,13 @@ Each model is plain JSON so you can hand-edit or author your own:
     centreline to create a bifurcation.
   - targets: optional; default = closed distal ends of the tree.
 
-Models are named vessel_NN: vessel_01 is the arch, vessel_02-06 are
-Y-bifurcation variants (see Y_VARIANTS; edit the knobs
-or seeds and re-run to get different ones).
+Models are named vessel_NN: vessel_01 is the arch (MODELS), vessel_02-24 are
+Y-bifurcation variants (see Y_VARIANTS; edit the knobs or seeds and re-run to
+get different ones). Every model carries a "split" (train / val / test, see
+SPLITS) so training, validation and test vessels never mix.
 
-Run:  python tools/make_models.py
+Run:  python tools/make_models.py                    # all Y variants
+      python tools/make_models.py vessel_07 vessel_01 # only these
 """
 import json
 import sys
@@ -65,7 +67,62 @@ Y_VARIANTS = [
     ("vessel_06", "Trunk entering at an angle; rotated split with a backward-pointing sub-branch",
      dict(seed=8, split_angle=((30, 40), (40, 55)), trunk_wiggle=8, trunk_heading=68,
           styles=("end", "side"), back_branch=True)),
+    # ---- vessel_07..24
+    ("vessel_07", "Narrow symmetric Y (~26 deg take-offs), both branches split at their ends",
+     dict(seed=9, split_angle=((22, 30), (22, 30)), trunk_wiggle=5, styles=("end", "end"))),
+    ("vessel_08", "Very wide Y (~65 deg take-offs) with side branches on both sides",
+     dict(seed=10, split_angle=((60, 70), (60, 70)), trunk_wiggle=6, styles=("side", "side"))),
+    ("vessel_09", "Asymmetric Y: steep left / shallow right take-off; right has a side branch",
+     dict(seed=11, split_angle=((55, 65), (20, 28)), trunk_wiggle=6, styles=("end", "side"))),
+    ("vessel_10", "Tortuous trunk, symmetric split, both branches split at their ends",
+     dict(seed=12, split_angle=((35, 45), (35, 45)), trunk_wiggle=20, trunk_len=(120, 135),
+          styles=("end", "end"))),
+    ("vessel_11", "Trunk leaning left; left side branch, right end split",
+     dict(seed=13, split_angle=((30, 40), (40, 55)), trunk_wiggle=8, trunk_heading=112,
+          styles=("side", "end"))),
+    ("vessel_12", "Large-calibre vessels, short trunk",
+     dict(seed=14, split_angle=((35, 50), (35, 50)), trunk_wiggle=6, trunk_len=(90, 100),
+          radius_scale=1.15, styles=("end", "side"))),
+    ("vessel_13", "Small-calibre vessels, wide split",
+     dict(seed=15, split_angle=((45, 55), (45, 55)), trunk_wiggle=7, radius_scale=0.75,
+          styles=("side", "end"))),
+    ("vessel_14", "Moderately tortuous trunk; backward-pointing right side branch",
+     dict(seed=16, split_angle=((35, 45), (35, 45)), trunk_wiggle=12, styles=("end", "side"),
+          back_branch=True)),
+    ("vessel_15", "Trunk leaning right; shallow left / steep right take-off",
+     dict(seed=17, split_angle=((25, 35), (50, 60)), trunk_wiggle=6, trunk_heading=70,
+          styles=("end", "end"))),
+    ("vessel_16", "Long tortuous thin trunk; side branches on both sides",
+     dict(seed=18, split_angle=((35, 45), (35, 45)), trunk_wiggle=16, trunk_len=(130, 140),
+          radius_scale=0.85, styles=("side", "side"))),
+    ("vessel_17", "Shallow split (~21 deg) after a long trunk",
+     dict(seed=19, split_angle=((18, 24), (18, 24)), trunk_wiggle=5, trunk_len=(110, 125),
+          styles=("end", "side"))),
+    ("vessel_18", "Asymmetric split; backward-pointing right side branch",
+     dict(seed=20, split_angle=((40, 50), (25, 35)), trunk_wiggle=10, styles=("side", "side"),
+          back_branch=True)),
+    ("vessel_19", "Moderate symmetric Y; right side branch",
+     dict(seed=21, split_angle=((38, 48), (38, 48)), trunk_wiggle=7, styles=("end", "side"))),
+    ("vessel_20", "Tortuous trunk leaning left; left side branch, right end split",
+     dict(seed=22, split_angle=((30, 45), (45, 60)), trunk_wiggle=15, trunk_heading=105,
+          styles=("side", "end"))),
+    ("vessel_21", "Thin vessels; backward-pointing right side branch",
+     dict(seed=23, split_angle=((40, 50), (35, 45)), trunk_wiggle=8, radius_scale=0.8,
+          styles=("end", "side"), back_branch=True)),
+    ("vessel_22", "Tortuous trunk; shallow left / steep right take-off, end splits",
+     dict(seed=24, split_angle=((25, 35), (55, 70)), trunk_wiggle=12, styles=("end", "end"))),
+    ("vessel_23", "Large calibre, trunk leaning right; side branches on both sides",
+     dict(seed=25, split_angle=((35, 50), (35, 50)), trunk_wiggle=7, trunk_heading=75,
+          radius_scale=1.1, styles=("side", "side"))),
+    ("vessel_24", "Narrow split after a long trunk; backward-pointing right side branch",
+     dict(seed=26, split_angle=((22, 30), (30, 40)), trunk_wiggle=9, trunk_len=(125, 140),
+          styles=("side", "side"), back_branch=True)),
 ]
+
+# Held-out vessels: never used for training. "val" for model selection /
+# hyperparameter tuning, "test" for the final evaluation. Everything else is "train".
+SPLITS = {"vessel_21": "val", "vessel_22": "val",
+          **{f"vessel_{n:02d}": "test" for n in range(4, 10)}}
 
 
 def _arc(start, heading, length, turn, n, wiggle, rng):
@@ -151,19 +208,25 @@ def y_variant(knobs):
     raise RuntimeError(f"no valid candidate for knobs {knobs}")
 
 
-def main():
+def main(names=None):
     OUT.mkdir(exist_ok=True)
+    names = set(names or [n for n, *_ in Y_VARIANTS])
     for name, m in MODELS.items():
-        data = {"name": name, "units": "mm", **m}
+        if name not in names:
+            continue
+        data = {"name": name, "units": "mm", "split": SPLITS.get(name, "train"), **m}
         (OUT / f"{name}.json").write_text(json.dumps(data, indent=2))
         print("wrote", OUT / f"{name}.json")
     for name, desc, knobs in Y_VARIANTS:
+        if name not in names:
+            continue
         vessels, rng_seed = y_variant(knobs)
-        data = {"name": name, "units": "mm", "description": desc, "generator_seed": rng_seed,
+        data = {"name": name, "units": "mm", "description": desc, "split": SPLITS.get(name, "train"),
+                "generator_seed": rng_seed,
                 "wall_thickness": 1.5, "blend_radius": 2.5, "vessels": vessels}
         (OUT / f"{name}.json").write_text(json.dumps(data, indent=2))
         print("wrote", OUT / f"{name}.json", "(seed", rng_seed, ")")
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

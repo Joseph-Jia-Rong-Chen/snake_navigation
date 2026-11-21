@@ -2,6 +2,7 @@
   "name": "vessel_02",
   "units": "mm",
   "description": "Wide symmetric Y (~50 deg take-offs), both branches split at their ends",
+  "split": "train",
   "generator_seed": 4000,
   "wall_thickness": 1.5,
   "blend_radius": 2.5,

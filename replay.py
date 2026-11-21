@@ -1,27 +1,26 @@
 #!/usr/bin/env python
-"""Replay a recorded episode.
+"""Replay a raw recorded episode.
 
-  python replay.py data/vessel_02/<episode>.npz            # view (redrawn from logged shapes)
-  python replay.py data/vessel_02/<episode>.npz --resim    # re-run actuator + physics from the
+  python replay.py data/raw/vessel_02/<episode>            # view (redrawn from the logged shapes)
+  python replay.py data/raw/vessel_02/<episode> --resim    # re-run actuator + physics from the
                                                            # logged targets, compare with the log
-Keys: Space pause, Left/Right step, +/- speed, F feature map U/V/off, V roadmap, Esc quit.
-The raw camera stream of the episode is <episode>.mp4.
+  python replay.py data/raw/vessel_02/<episode> --sync     # print the alignment / timing report
+Keys: Space pause, Left/Right step, +/- speed, F feature map U/V/off, I recorded video frame,
+V roadmap, Esc quit.
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import catheter_sim  # noqa: F401
 import numpy as np
 
 from catheter_sim.config import Config
+from catheter_sim.dataset import Episode
 from catheter_sim.env import CatheterEnv
-from catheter_sim.msgs import CameraInfo
-from catheter_sim.recorder import init_state, load_episode
-from catheter_sim.vessel import VesselModel
-
-ROOT = Path(__file__).resolve().parent
+from catheter_sim.recorder import init_state
 
 
 def build_cfg(meta: dict) -> Config:
@@ -30,39 +29,40 @@ def build_cfg(meta: dict) -> Config:
     return cfg
 
 
-def model_path(meta: dict) -> Path:
-    p = Path(meta["model_path"])
-    return p if p.exists() else ROOT / "models" / f"{meta['model']}.json"
-
-
-def resim(meta: dict, d: dict) -> None:
-    env = CatheterEnv(build_cfg(meta), model_path(meta), dt=meta["sim_dt"])
+def resim(ep: Episode) -> None:
+    """Feed the target the actuator tracked on every logged tick back into a fresh
+    sim started from the logged initial state; joints and tip must match exactly."""
+    d, meta = ep.d, ep.meta
+    env = CatheterEnv(build_cfg(meta), ep.vessel, dt=meta["sim_dt"])
     env.set_state(init_state(d))
     joint_err, tip_err = [], []
-    for k in range(len(d["ctrl_t"])):
-        o = env.command(float(d["ctrl_target_length"][k]), float(d["ctrl_target_bend"][k]))
-        joint_err.append(max(abs(o["joint_length"] - d["ctrl_joint_length"][k]),
-                             abs(o["joint_bend"] - d["ctrl_joint_bend"][k])))
-        tip_err.append(np.linalg.norm(o["tip_pos"] - d["ctrl_tip_pos"][k]))
+    for k in range(len(d["state_t"])):
+        o = env.command(float(d["state_target_length"][k]), float(d["state_target_bend"][k]))
+        joint_err.append(max(abs(o["joint_length"] - d["state_length"][k]),
+                             abs(o["joint_bend"] - d["state_bend"][k])))
+        tip_err.append(np.linalg.norm(o["tip_pos"] - d["gt_tip_pos"][k]))
     print(f"re-simulated {len(tip_err)} control ticks: max joint error {max(joint_err):.2e}, "
           f"tip error mean {np.mean(tip_err):.2e} mm, max {max(tip_err):.2e} mm")
 
 
-def view(meta: dict, d: dict, name: str) -> None:
+def view(ep: Episode) -> None:
     import pygame
 
-    from catheter_sim.render import PANEL_W, Panel, SceneRenderer, draw_targets, feature_overlay
+    from catheter_sim.featuremap import compute
+    from catheter_sim.render import (PANEL_W, Panel, SceneRenderer, array_to_surface, draw_targets,
+                                     feature_overlay, resize_image)
+    meta, d, a = ep.meta, ep.d, ep.a
     cfg = build_cfg(meta)
-    cam = CameraInfo.from_dict(meta["camera_info"])
+    cam = ep.cam
     pygame.init()
     screen = pygame.display.set_mode((cam.width + PANEL_W, cam.height))
-    pygame.display.set_caption(f"Replay - {name}")
-    vessel = VesselModel.load(model_path(meta))
-    sr = SceneRenderer(vessel, cam)
+    pygame.display.set_caption(f"Replay - {ep.dir.name}")
+    sr = SceneRenderer(ep.vessel, cam)
     panel, font = Panel("Replay"), pygame.font.SysFont("dejavusansmono,monospace", 15)
     bend_max = float(np.degrees(cfg.catheter.kappa_max * cfg.catheter.tip_length))
+    video = None
     clock = pygame.time.Clock()
-    i, T, paused, speed, fmode, roadmap, overlay = 0, len(d["t"]), False, 1, 0, True, None
+    i, T, paused, speed, fmode, roadmap, show_video, overlay = 0, len(ep), False, 1, 0, True, False, None
     running = True
     while running:
         for ev in pygame.event.get():
@@ -82,29 +82,36 @@ def view(meta: dict, d: dict, name: str) -> None:
                     speed = max(speed // 2, 1)
                 elif k == pygame.K_v:
                     roadmap = not roadmap
+                elif k == pygame.K_i:
+                    show_video = not show_video
+                    if show_video and video is None:
+                        video = ep.frames()                     # at the recorded video size
                 elif k == pygame.K_f:
                     fmode, overlay = (fmode + 1) % 3, None
-        screen.blit(sr.render(d["shape"][i], cfg.catheter.diameter, roadmap), (0, 0))
-        mi = int(d["feature_map_index"][i])
-        if fmode and mi >= 0:
+        gi = int(a["gt_index"][i])
+        if show_video:
+            screen.blit(array_to_surface(resize_image(video[i], (cam.width, cam.height))), (0, 0))
+        else:
+            screen.blit(sr.render(d["gt_shape"][gi], cfg.catheter.diameter, roadmap), (0, 0))
+        mi = int(a["map_index"][i])
+        if fmode:
             if overlay is None or overlay[0] != (mi, fmode):
-                vals = d["feature_U" if fmode == 1 else "feature_V"][mi]
-                overlay = ((mi, fmode), feature_overlay(vals, d["vessel_mask"][mi]))
+                U, V, mask, *_ = compute(ep.vessel, cam, d["fmap_target_world"][mi])
+                overlay = ((mi, fmode), feature_overlay(U if fmode == 1 else V, mask))
             screen.blit(overlay[1], (0, 0))
-        tname = str(d["feature_target_name"][mi]) if mi >= 0 else None
-        draw_targets(screen, sr, font, vessel.targets, tname, False)
-        keys = "".join(n if b else "." for n, b in zip("WSLR", d["keys"][i]))
+        tname = ep.target_name(i)
+        draw_targets(screen, sr, font, ep.vessel.targets, tname, False)
         lines = [
-            (f"frame {i + 1}/{T}   t={d['t'][i] - d['t'][0]:.2f}s   x{speed}", (230, 230, 230)),
-            (f"source {d['action_source'][i]}   keys {keys}", (160, 160, 165)),
-            ("              target    joint", (160, 160, 165)),
-            (f"insert [mm] {d['action_length'][i]:7.1f}  {d['joint_length'][i]:7.1f}", (230, 230, 230)),
-            (f"bend  [deg] {d['action_bend'][i]:+7.1f}  {d['joint_bend'][i]:+7.1f}", (230, 230, 230)),
-            (f"target {tname}  {d['target_dist'][i]:.1f} mm", (90, 220, 120)),
+            (f"frame {i + 1}/{T}   t={a['t'][i]:.2f}s   x{speed}", (230, 230, 230)),
+            (f"source {a['action_source'][i]}" + ("   [video]" if show_video else ""), (160, 160, 165)),
+            ("              action   state", (160, 160, 165)),
+            (f"insert [mm] {a['action'][i, 0]:7.1f}  {a['state'][i, 0]:7.1f}", (230, 230, 230)),
+            (f"bend  [deg] {a['action'][i, 1]:+7.1f}  {a['state'][i, 1]:+7.1f}", (230, 230, 230)),
+            (f"target {tname}  {a['target_dist'][i]:.1f} mm", (90, 220, 120)),
         ]
         panel.draw(screen, pygame.Rect(cam.width, 0, PANEL_W, cam.height), lines,
-                   float(d["action_bend"][i]), float(d["joint_bend"][i]), float(d["bend_meas"][i]),
-                   bend_max, False, "TARGET REACHED" if d["success"][i] else None, None)
+                   float(a["action"][i, 1]), float(a["state"][i, 1]), float(d["gt_bend_meas"][gi]),
+                   bend_max, False, "TARGET REACHED" if a["success"][i] else None, None)
         pygame.display.flip()
         if not paused:
             i = min(i + speed, T - 1)
@@ -114,15 +121,22 @@ def view(meta: dict, d: dict, name: str) -> None:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("episode")
+    ap.add_argument("episode", help="raw episode directory (or its meta.json)")
     ap.add_argument("--resim", action="store_true")
+    ap.add_argument("--sync", action="store_true")
     args = ap.parse_args()
-    meta, d = load_episode(args.episode)
-    if "ctrl_t" not in d:
-        raise SystemExit("this recording uses an older format; replay supports the launch.py format")
-    print({k: meta.get(k) for k in ("model", "target", "n_frames", "duration", "reached_target",
-                                    "time_to_target", "sources")})
-    resim(meta, d) if args.resim else view(meta, d, Path(args.episode).name)
+    p = Path(args.episode)
+    if p.suffix == ".npz" and not (p.parent / "meta.json").exists():
+        raise SystemExit("this is an older single-file recording; replay supports the raw episode directories")
+    ep = Episode(p)
+    print({k: ep.meta.get(k) for k in ("model", "target", "n_frames", "duration", "reached_target",
+                                       "time_to_target", "sources", "video_size")})
+    if args.sync:
+        print(json.dumps(ep.sync_report(), indent=2))
+    elif args.resim:
+        resim(ep)
+    else:
+        view(ep)
 
 
 if __name__ == "__main__":

@@ -168,7 +168,8 @@ class ViewerNode(Node):
         if rec is not None and rec.recording:
             lines.append((f"frames {rec.frames}", (230, 80, 80)))
         elif rec is not None and rec.message:
-            lines.append((rec.message[:40], (240, 200, 90)))
+            for part in rec.message.split(", "):
+                lines.append((part[:40], (240, 200, 90)))
         bend_max = float(np.degrees(self.cfg.catheter.kappa_max * self.cfg.catheter.tip_length))
         self.panel.draw(self.screen, pygame.Rect(self.view.w, 0, PANEL_W, self.view.h), lines,
                         js.target_bend if js else 0.0, js.bend if js else 0.0, gt.bend_meas, bend_max,

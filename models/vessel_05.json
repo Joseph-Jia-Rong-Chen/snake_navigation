@@ -2,6 +2,7 @@
   "name": "vessel_05",
   "units": "mm",
   "description": "Long trunk with small-calibre branches and side branches on both sides",
+  "split": "test",
   "generator_seed": 7000,
   "wall_thickness": 1.5,
   "blend_radius": 2.5,

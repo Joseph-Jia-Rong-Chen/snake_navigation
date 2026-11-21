@@ -70,10 +70,13 @@ class SimParams:
 
 @dataclass
 class CameraParams:
-    width: int = 900                  # square by default so resizing never distorts
-    height: int = 900
+    width: int = 1280                 # camera image = the viewer's scene area [px]
+    height: int = 720
     fps: int = 30
     margin: float = 6.0               # mm trimmed off the vessel bounding box
+    encoding: str = "mono8"           # mono8 (grayscale, like fluoroscopy) | rgb8
+    tip_gray: int = 255               # gray level of the tip fiducial in mono8 images
+    latency: float = 0.0              # frame delivery delay after capture [s]
 
 
 @dataclass
@@ -85,10 +88,11 @@ class TeleopParams:
 
 @dataclass
 class RecordingParams:
-    data_dir: str = "data"
+    data_dir: str = "data/raw"        # raw episodes: <data_dir>/<model>/<episode>/
     record_video: bool = True         # plain .mp4 of /camera/image
-    record_images: bool = False       # also store lossless downsampled frames in the .npz
-    image_size: int = 256
+    video_scale: float = 0.5          # video (and stored feature maps) = camera size * this
+    record_images: bool = False       # also store lossless frames (video size) in streams.npz
+    stop_on_success: bool = True      # stop recording when the tip reaches the target
 
 
 @dataclass

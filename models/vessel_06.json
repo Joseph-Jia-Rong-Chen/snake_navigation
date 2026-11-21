@@ -2,6 +2,7 @@
   "name": "vessel_06",
   "units": "mm",
   "description": "Trunk entering at an angle; rotated split with a backward-pointing sub-branch",
+  "split": "test",
   "generator_seed": 8000,
   "wall_thickness": 1.5,
   "blend_radius": 2.5,

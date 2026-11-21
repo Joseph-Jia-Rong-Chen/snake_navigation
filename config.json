@@ -18,7 +18,7 @@
     "newton_tol": 1e-05
   },
   "actuator": {
-    "delay": 0.0,
+    "delay": 0.08,
     "time_constant": 0.08,
     "max_insert_speed": 40.0,
     "max_bend_rate": 360.0
@@ -27,10 +27,13 @@
     "rate_hz": 60
   },
   "camera": {
-    "width": 900,
-    "height": 900,
+    "width": 1280,
+    "height": 720,
     "fps": 30,
-    "margin": 6.0
+    "margin": 6.0,
+    "encoding": "mono8",
+    "tip_gray": 255,
+    "latency": 0.0
   },
   "teleop": {
     "insert_speed": 15.0,
@@ -38,9 +41,10 @@
     "bend_rate": 171.9
   },
   "recording": {
-    "data_dir": "data",
+    "data_dir": "data/raw",
     "record_video": true,
+    "video_scale": 0.5,
     "record_images": false,
-    "image_size": 256
+    "stop_on_success": true
   }
 }

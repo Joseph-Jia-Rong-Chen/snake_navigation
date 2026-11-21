@@ -34,8 +34,26 @@ def surface_to_array(surf: pygame.Surface) -> np.ndarray:
 
 
 def array_to_surface(arr: np.ndarray) -> pygame.Surface:
+    """Surface from an (H, W, 3) RGB or (H, W) grayscale uint8 array."""
+    if arr.ndim == 2:
+        arr = np.repeat(arr[..., None], 3, axis=2)
     h, w = arr.shape[:2]
     return pygame.image.frombuffer(np.ascontiguousarray(arr).tobytes(), (w, h), "RGB")
+
+
+def to_gray(rgb: np.ndarray) -> np.ndarray:
+    """(H, W) uint8 luma (ITU-R BT.601 weights 0.299/0.587/0.114, integer arithmetic)."""
+    r, g, b = (rgb[..., k].astype(np.uint16) for k in range(3))
+    return ((77 * r + 150 * g + 29 * b + 128) >> 8).astype(np.uint8)
+
+
+def resize_image(img: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Resize an RGB or grayscale uint8 image to size = (W, H) (area-style smoothing;
+    image edges map onto image edges, like CameraInfo.scaled)."""
+    if (img.shape[1], img.shape[0]) == tuple(size):
+        return img
+    out = surface_to_array(pygame.transform.smoothscale(array_to_surface(img), tuple(size)))
+    return out[..., 0].copy() if img.ndim == 2 else out
 
 
 class SceneRenderer:
@@ -75,8 +93,9 @@ class SceneRenderer:
         return pygame.transform.smoothscale(surf, size)
 
     def render(self, centerline: np.ndarray, diameter: float, roadmap: bool = True,
-               surf: pygame.Surface | None = None) -> pygame.Surface:
-        """Plain scene: background (+ vessel roadmap), black catheter, red tip fiducial."""
+               surf: pygame.Surface | None = None, tip_color=RED) -> pygame.Surface:
+        """Plain scene: background (+ vessel roadmap), black catheter, tip fiducial
+        (red in the viewer; the camera passes a bright gray for mono8 images)."""
         s = surf or self.surface
         s.fill(FILL)
         s.blit(self._bg_road if roadmap else self._bg_plain, self._bg_pos)
@@ -91,8 +110,8 @@ class SceneRenderer:
         from_tip = np.concatenate([np.cumsum(seg[::-1])[::-1], [0.0]])
         band = self.w2s(centerline[from_tip <= 2.0 + 1e-6])
         if len(band) >= 2:
-            pygame.draw.lines(s, RED, False, band, w + 2)
-        pygame.draw.circle(s, RED, sp[-1], w * 0.9 + 1)
+            pygame.draw.lines(s, tip_color, False, band, w + 2)
+        pygame.draw.circle(s, tip_color, sp[-1], w * 0.9 + 1)
         return s
 
 

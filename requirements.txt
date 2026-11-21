@@ -1,3 +1,6 @@
 numpy
 scipy
 pygame
+
+# optional, only for tools/convert_lerobot.py:
+# lerobot==0.4.4

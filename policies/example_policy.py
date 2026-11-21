@@ -28,7 +28,7 @@ class FeatureMapPolicy(Policy):
     towards the target. Navigates simple geometry; it is a demonstration of the
     inputs, not a good controller (it does not plan through bifurcations)."""
     rate_hz = 10
-    input_size = (256, 256)
+    input_size = (320, 180)
 
     def __init__(self, speed: float = 10.0, gain: float = 120.0):
         self.speed, self.gain = speed, gain
@@ -57,13 +57,13 @@ class FeatureMapPolicy(Policy):
 
 
 class ReplayPolicy(Policy):
-    """Open-loop replay of the actions in a recorded episode (pipeline test)."""
+    """Open-loop replay of the aligned actions of a raw episode (pipeline test)."""
 
     def __init__(self, episode: str):
-        from catheter_sim.recorder import load_episode
-        meta, d = load_episode(episode)
-        self.rate_hz = meta["camera_fps"]
-        self.actions = np.stack([d["next_action_length"], d["next_action_bend"]], 1)
+        from catheter_sim.dataset import Episode
+        ep = Episode(episode)
+        self.rate_hz = ep.fps
+        self.actions = ep.a["action"]
         self.k = 0
 
     def reset(self, info):
