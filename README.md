@@ -6,6 +6,12 @@ vessel phantoms. It's built as ROS2-style nodes on a small in-process pub/sub bu
 drive the robot through the same topics. Every run can be recorded as raw,
 timestamped streams and converted into a LeRobot dataset.
 
+<p align="center">
+  <img src="docs/media/demo.gif" alt="ACT policy steering the catheter to the left_up target in held-out vessel_21" width="640">
+  <br>
+  <em>Trained ACT policy reaching <code>left_up</code> in a validation vessel (<code>vessel_21</code>). <a href="docs/media/demo.mp4">MP4 version</a></em>
+</p>
+
 **Quick reference: [CHEATSHEET.md](CHEATSHEET.md)** has every command of the pipeline, with options and examples.
 
 ```bash
