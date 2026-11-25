@@ -6,6 +6,8 @@ vessel phantoms. It's built as ROS2-style nodes on a small in-process pub/sub bu
 drive the robot through the same topics. Every run can be recorded as raw,
 timestamped streams and converted into a LeRobot dataset.
 
+**Quick reference: [CHEATSHEET.md](CHEATSHEET.md)** has every command of the pipeline, with options and examples.
+
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt   # + system ffmpeg
 .venv/bin/python launch.py                                   # teleop (keyboard)
@@ -41,11 +43,11 @@ LeRobot dataset must have the same size.
 | how | command |
 |---|---|
 | Teleop: press **Enter** to start/stop a recording | `python launch.py --model vessel_02` |
-| Teleop: record every episode (from launch, restarting on each reset **R**) | `python launch.py --model vessel_02 --record` |
 | Teleop, cycling (**N** / **P**) only through training vessels | `python launch.py --split train` |
 | Scripted expert, headless | `python collect_auto.py --models vessel_02,vessel_03 --episodes 5 --noise 0.3` |
 | Scripted expert on every training vessel | `python collect_auto.py --split train --episodes 3 --noise 0.3` |
-| Policy driving, you take over when needed (any motion key; **G** gives control back) | `python launch.py --commander policy --policy my_policy.py:MyPolicy --record` |
+| Teleop with a policy on standby: **G** lets it drive, any motion key takes back control | `python launch.py --split train --policy training/act_policy.py:ACTSimPolicy --policy-arg checkpoint=outputs/act_catheter/best` |
+| Policy drives first, you take over when needed | add `--commander policy` to the line above |
 
 Each recording becomes one directory:
 
@@ -83,6 +85,7 @@ python tools/convert_lerobot.py data/raw --out x --dry-run      # only list what
 | `--split`, `--only-success`, `--sources`, `--models` | episode filters (vessel split from the model file, the rest from `meta.json`) |
 | `--action-align last\|first`, `--state-align hold\|interp` | alignment rules (§2.4) |
 | `--fill-gaps` | repeat frames over timing gaps instead of skipping the episode |
+| `--hold-end 2.0` | append this many seconds of "arrived, stay still" to every episode that ends in the target: last frame and joint state repeated, action = state; 0 disables |
 | `--vcodec` | LeRobot video codec (default `h264`) |
 
 The converter writes a standard LeRobot dataset plus
@@ -155,6 +158,24 @@ Every frame, the wrapper does the following:
 
 A takeover or resume clears the queue. `--policy-arg n_action_steps=5`
 overrides how many actions are executed per chunk.
+
+**Recording an evaluation with videos.** Save into a separate folder, so the
+runs don't end up in your training data, then render annotated copies:
+
+```bash
+python launch.py --commander policy --policy training/act_policy.py:ACTSimPolicy \
+    --policy-arg checkpoint=outputs/act_catheter/best --split val --episodes 1 \
+    --record --set recording.data_dir=data/eval/run1
+python tools/render_video.py data/eval/run1 --out videos/run1
+```
+
+`render_video.py` draws onto the recorded camera video:
+- the active target and the tip path
+- a status bar: model → target, time, distance to target, driver
+- a final TARGET REACHED / NOT REACHED banner
+
+The recorded `video.mp4` itself stays the plain camera stream that the policy
+saw. `--size video` renders at the recorded size instead of the camera size.
 
 For your own policy class:
 

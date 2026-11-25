@@ -2,7 +2,8 @@
 (format: recorder.py). No pairing or resampling happens here; catheter_sim.sync
 aligns the streams to the camera timeline afterwards.
 
-Control: /episode/events record_start | record_stop | record_toggle.
+Control: /episode/events record_start | record_stop | record_toggle.Handing control between the operator and a policy (takeover / G) never starts or
+stops a recording: one recording can contain both, labelled per frame.
 A running recording is saved on reset, model change and shutdown, and, with
 recording.stop_on_success, as soon as the tip reaches the target: the recorder
 stops right after the first camera frame captured after the success, so the
@@ -264,6 +265,7 @@ class RecorderNode(Node):
             "time_to_target": float(a["status_t"][succ.argmax()] - self.t0) if succ.any() else None,
             "sources": sorted(set(a["cmd_source"].tolist())) or ["hold"],
             "stop_reason": reason,
+            "trigger": "auto" if self.autorecord else "manual",
             "streams": {k: int(len(a[f"{k}_t"])) for k in STREAMS},
             "video": "video.mp4" if self.video is not None else None,
             "config": self.cfg.to_dict(), **self.extra_meta,

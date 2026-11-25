@@ -20,7 +20,7 @@ HELP = [
     "Enter      start / stop recording",
     "R reset    T next target",
     "N / P      next / prev vessel",
-    "G          give control back to policy",
+    "G          hand control to the policy",
     "F          feature map overlay U/V/off",
     "I          show raw /camera/image",
     "V roadmap  C forces  H help",
@@ -145,8 +145,11 @@ class ViewerNode(Node):
         st, js, gt = self.status, self.state, self.gt
         white, grey, dim = (230, 230, 230), (160, 160, 165), (110, 110, 115)
         active = self.active.active if self.active else self.primary
-        mode_col = (240, 170, 60) if active != self.primary else (120, 200, 255)
-        mode = f"driver  {active}" + ("  TAKEOVER (G)" if active != self.primary else "")
+        auto = self.active.auto if self.active else ""
+        if active == "teleop":
+            mode, mode_col = "driver  you" + (f"   (G: {auto})" if auto else ""), (120, 200, 255)
+        else:
+            mode, mode_col = f"driver  {active}   (keys: take over)", (240, 170, 60)
         lines = [
             (f"model   {self.world.name}", white),
             (f"target  {st.target_name}  ({st.target_dist:.1f} mm)" if st else "target  -", (90, 220, 120)),

@@ -39,6 +39,9 @@ def main(argv=None):
     ap.add_argument("--action-align", choices=["last", "first"], default="last")
     ap.add_argument("--state-align", choices=["hold", "interp"], default="hold")
     ap.add_argument("--fill-gaps", action="store_true", help="repeat frames over timing gaps instead of skipping")
+    ap.add_argument("--hold-end", type=float, default=2.0,
+                    help="seconds of 'arrived, stay still' appended to episodes that end in the target "
+                         "(last frame + state repeated, action = state); 0 disables")
     ap.add_argument("--vcodec", default="h264", help="LeRobot video codec: h264 | hevc | libsvtav1 | auto")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="only list what would be converted")
@@ -55,7 +58,7 @@ def main(argv=None):
     if args.dry_run or not kept:
         return
     rep = convert(kept, Path(args.out), args.repo_id, args.scale, args.action_align, args.state_align,
-                  args.fill_gaps, args.vcodec, args.overwrite)
+                  args.fill_gaps, args.vcodec, args.overwrite, hold_end=args.hold_end)
     for name, why in rep["skipped"]:
         print(f"  skip {name}: {why}")
     total = sum(e["lerobot_frames"] for e in rep["episodes"])

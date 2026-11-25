@@ -92,7 +92,7 @@ class RecordingParams:
     record_video: bool = True         # plain .mp4 of /camera/image
     video_scale: float = 0.5          # video (and stored feature maps) = camera size * this
     record_images: bool = False       # also store lossless frames (video size) in streams.npz
-    stop_on_success: bool = True      # stop recording when the tip reaches the target
+    stop_on_success: bool = False     # stop recording when the tip reaches the target (else: Enter)
 
 
 @dataclass

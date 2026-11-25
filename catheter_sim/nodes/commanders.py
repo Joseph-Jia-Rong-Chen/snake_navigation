@@ -266,14 +266,24 @@ class PolicyNode(Node):
 
 class MuxNode(Node):
     """Forwards the active commander's target to /robot/joint_target.
-    If the primary commander is not teleop, any operator motion key takes over;
-    the 'resume' event (G key) hands control back."""
+
+    `primary` drives after every reset. `auto` is the automatic driver that can be
+    handed control (a policy or the autopilot; None for plain teleop):
+      G ('resume' event)   hands control to `auto`
+      any motion key       the operator takes control (a 'takeover' event)
+    With primary = teleop and an auto policy, you drive first and press G to let the
+    policy drive; with primary = policy it drives first and you take over.
+
+    Recorded action source per command: 'teleop' (operator, in a teleop-primary
+    session), 'takeover' (operator overriding a policy-primary session), 'policy',
+    'autopilot'."""
 
     SOURCES = ("teleop", "policy", "autopilot")
 
-    def __init__(self, bus: Bus, primary: str):
+    def __init__(self, bus: Bus, primary: str, auto: str | None = None):
         super().__init__(bus, "mux")
         self.primary = self.active = primary
+        self.auto = auto or (primary if primary != "teleop" else None)
         self.latest: dict[str, JointCommand] = {}
         self.pub = self.create_publisher("/robot/joint_target")
         self.pub_active = self.create_publisher("/mux/active", latched=True)
@@ -282,7 +292,7 @@ class MuxNode(Node):
             self.create_subscription(f"/{s}/joint_target", self._make_cb(s))
         self.create_subscription("/episode/events", self._on_event)
         self.create_timer(bus.dt, self.update, priority=30)
-        self.pub_active.publish(ActiveSource(self.active, self.primary))
+        self.pub_active.publish(ActiveSource(self.active, self.primary, self.auto or ""))
 
     def _make_cb(self, source: str):
         def cb(cmd: JointCommand):
@@ -294,12 +304,12 @@ class MuxNode(Node):
 
     def _set_active(self, a: str) -> None:
         self.active = a
-        self.pub_active.publish(ActiveSource(a, self.primary))
+        self.pub_active.publish(ActiveSource(a, self.primary, self.auto or ""))
 
     def _on_event(self, ev: Event) -> None:
-        if ev.kind == "resume" and self.active != self.primary:
-            self.latest.pop(self.primary, None)          # don't replay a stale command
-            self._set_active(self.primary)
+        if ev.kind == "resume" and self.auto and self.active != self.auto:
+            self.latest.pop(self.auto, None)             # wait for a fresh command, don't replay a stale one
+            self._set_active(self.auto)
         elif ev.kind == "reset":
             self.latest.clear()
             if self.active != self.primary:

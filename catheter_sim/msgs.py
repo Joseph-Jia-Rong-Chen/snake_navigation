@@ -186,8 +186,9 @@ class Catalog(Msg):
 
 @dataclass
 class ActiveSource(Msg):
-    active: str
-    primary: str
+    active: str                       # who drives now: teleop | policy | autopilot
+    primary: str                      # who drives after a reset
+    auto: str = ""                    # the automatic driver G hands control to ("" = none)
 
 
 @dataclass

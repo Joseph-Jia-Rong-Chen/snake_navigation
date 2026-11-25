@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parent
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--commander", choices=["teleop", "policy", "autopilot"], default="teleop")
-    ap.add_argument("--policy", help="file.py:ClassName or module:ClassName (with --commander policy)")
+    ap.add_argument("--policy", help="file.py:ClassName or module:ClassName. With --commander policy it drives; "
+                                     "with teleop it is on standby: G hands it control, any motion key takes it back")
     ap.add_argument("--policy-arg", action="append", default=[], metavar="KEY=VALUE")
     ap.add_argument("--model", help="vessel model name/stem/index (default: first)")
     ap.add_argument("--models", help="headless: comma-separated models to run (default: all, or --model)")
@@ -43,7 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--models-dir", default=str(ROOT / "models"))
     ap.add_argument("--config", default=str(ROOT / "config.json"))
     ap.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
-    ap.add_argument("--record", action="store_true", help="record every episode")
+    ap.add_argument("--record", action="store_true",
+                    help="record every episode automatically (default: Enter starts / stops a recording)")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--record-images", action="store_true", help="also store lossless frames (video size) in streams.npz")
     ap.add_argument("--headless", action="store_true", help="no window (needs --commander policy/autopilot)")
@@ -110,10 +112,14 @@ def main(argv: list[str] | None = None) -> None:
         SupervisorNode(bus, sel, targets, args.episodes or 1, args.max_time, args.record)
     if args.commander == "autopilot":
         AutopilotNode(bus, cfg, noise=args.noise, seed=args.seed)
-    elif args.commander == "policy":
+    auto = None
+    if args.commander == "autopilot":
+        auto = "autopilot"
+    elif args.policy:                              # policy in charge, or on standby for teleop (G)
         policy = load_policy(args.policy, parse_kwargs(args.policy_arg))
         PolicyNode(bus, cfg, policy, asynchronous=realtime)
-    MuxNode(bus, args.commander)
+        auto = "policy"
+    MuxNode(bus, args.commander, auto)
     RobotSimNode(bus, cfg)
     CameraNode(bus, cfg)
     FeatureMapNode(bus)

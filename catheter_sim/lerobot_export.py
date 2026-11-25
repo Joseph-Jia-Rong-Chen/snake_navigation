@@ -122,7 +122,11 @@ def select(episodes: list[Path], only_success: bool = False, sources: set[str] |
 
 def convert(episodes: list[Path], out: Path, repo_id: str, scale: float = 1.0,
             action_align: str = "last", state_align: str = "hold", fill_gaps: bool = False,
-            vcodec: str = "h264", overwrite: bool = False, image_threads: int = 4) -> dict:
+            vcodec: str = "h264", overwrite: bool = False, image_threads: int = 4,
+            hold_end: float = 2.0) -> dict:
+    """hold_end: seconds of "arrived, stay still" appended to every episode whose last
+    frame is inside the target: the last frame / maps / joint state repeated, with
+    action = that joint state (relative offset 0). Raw recordings are not changed."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     out = Path(out)
@@ -137,8 +141,9 @@ def convert(episodes: list[Path], out: Path, repo_id: str, scale: float = 1.0,
     ds = LeRobotDataset.create(repo_id=repo_id, root=out, fps=fps, features=features(*size),
                                robot_type="catheter_2dof", use_videos=True, vcodec=vcodec,
                                image_writer_threads=image_threads)
+    n_hold = int(round(hold_end * fps))
     rep = {"size": list(size), "fps": fps, "action_align": action_align, "state_align": state_align,
-           "episodes": [], "skipped": []}
+           "hold_end_s": hold_end, "hold_end_frames": n_hold, "episodes": [], "skipped": []}
     for ep in eps:
         name = ep.dir.name
         r = {"episode": name, "path": str(ep.dir), **ep.sync_report()}
@@ -162,13 +167,24 @@ def convert(episodes: list[Path], out: Path, repo_id: str, scale: float = 1.0,
                     ds.add_frame(dict(prev))
                     n += 1
             prev = {**frame}                                 # add_frame pops "task"
+            last = s
             ds.add_frame(frame)
             n += 1
+        arrived = bool(ep.a["success"][-1]) if "success" in ep.a else False
+        held = n_hold if (arrived and n_hold > 0) else 0
+        if held:                                             # arrived: stay still for hold_end s
+            hold = make_frame(last["image"], last["feature_u"], last["feature_v"], last["state"], last["state"])
+            hold["task"] = prev["task"]
+            for _ in range(held):
+                ds.add_frame(dict(hold))
+            n += held
         ds.save_episode()
         r["lerobot_episode_index"] = len(rep["episodes"])
         r["lerobot_frames"] = n
+        r["hold_frames_added"] = held
         rep["episodes"].append(r)
-        print(f"  {name}: {n} frames  sources {r['action_sources']}  gaps {len(r['gaps'])}", flush=True)
+        print(f"  {name}: {n} frames ({held} hold)  sources {r['action_sources']}  gaps {len(r['gaps'])}",
+              flush=True)
     ds.finalize()
     rep["image_stats"] = fix_image_stats(out, repo_id)
     (out / "meta" / "sync_report.json").write_text(json.dumps(rep, indent=2))
